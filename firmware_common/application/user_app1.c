@@ -51,6 +51,14 @@ static u32 UserApp1_u32TimeOut = 0;
 /* New variables */
 volatile u32 G_u32UserApp1Flags; /*!< @brief Global state flags */
 
+/*MUSIC*/
+static u8 *songNotePitches;    // dynamically allocated list of note pitches
+static u16 *songNoteDurations; // dynamically allocated list of note durrations
+static u16 songLength = 0;
+static u16 songCapacity = 64;
+
+static u8 antAcknowledgeMessage[] = {0x53, 0x68, 0x61, 0x6E, 0x65, 0x20, 0x47, 0x2E};
+
 /*--------------------------------------------------------------------------------------------------------------------*/
 /* Existing variables (defined in other files -- should all contain the "extern" keyword) */
 extern volatile u32 G_u32SystemTime1ms;    /*!< @brief From main.c */
@@ -77,6 +85,7 @@ static void UserApp1SM_WaitAntReady();
 static void UserApp1SM_ChannelOpen();
 static void UserApp1SM_WaitChannelOpen();
 static void UserApp1SM_WaitChannelClose();
+static void UserApp1SM_SongPlayBack();
 
 /*--------------------------------------------------------------------------------------------------------------------*/
 /*! @publicsection */
@@ -107,6 +116,8 @@ void UserApp1Initialize(void)
   u8 au8WelcomeMessage[] = "ANT Slave Demo";
 
   LedOn(RED0); /*Set Status LED to red as ant is unconfigured*/
+  songNotePitches = malloc(songCapacity);
+  songNoteDurations = malloc(songCapacity * 2);
 
   AntAssignChannelInfoType sChannelInfo;
   if (AntRadioStatusChannel(U8_ANT_CHANNEL_USERAPP) == ANT_UNCONFIGURED)
@@ -282,7 +293,6 @@ static void UserApp1SM_ChannelOpen()
       LedOff(GREEN0);
       LedOn(BLUE0);
       u8LastState = 0xff;
-      UserApp1_u32DataMsgCount++;
 
       bGotNewData = FALSE;
       for (u8 i = 0; i < ANT_APPLICATION_MESSAGE_BYTES; i++)
@@ -290,74 +300,68 @@ static void UserApp1SM_ChannelOpen()
         if (G_au8AntApiCurrentMessageBytes[i] != au8LastAntData[i])
         {
           bGotNewData = TRUE;
-          au8LastAntData[i] = G_au8AntApiCurrentMessageBytes;
+          au8LastAntData[i] = G_au8AntApiCurrentMessageBytes[i];
+        }
+      }
 
-          au8DataContent[2 * i] = HexToASCIICharUpper(G_au8AntApiCurrentMessageBytes[i] / 16);
-          au8DataContent[2 * i + 1] = HexToASCIICharUpper(G_au8AntApiCurrentMessageBytes[i] % 16);
+      // check if end of song data message if so leave this state
+      // own if statement to reduce timing
+      if (bGotNewData)
+      {
+        bool endOfSong = TRUE;
+        for (u8 i = 0; i < 8; i++)
+        {
+          endOfSong = au8LastAntData[i] == 0xff ? endOfSong : FALSE;
+        }
+        if (endOfSong)
+        {
+          LedOn(RED3);
+          UserApp1_pfStateMachine = UserApp1SM_SongPlayBack;
+          bGotNewData = FALSE;
         }
       }
 
       if (bGotNewData)
       {
-        // display to screen
-        sStringLocation.u16PixelColumnAddress = U16_LCD_CENTER_COLUMN - (strlen((char const *)au8DataContent) * (U8_LCD_SMALL_FONT_COLUMNS + U8_LCD_SMALL_FONT_SPACE) / 2);
-        sStringLocation.u16PixelRowAddress = U8_LCD_SMALL_FONT_LINE7;
-
-        static PixelBlockType G_sLcdClearLine7Mi =
-            {
-                .u16RowStart = U8_LCD_SMALL_FONT_LINE7,
-                .u16ColumnStart = 0,
-                .u16RowSize = U8_LCD_SMALL_FONT_ROWS,
-                .u16ColumnSize = U16_LCD_COLUMNS};
-
-        LcdClearPixels(&G_sLcdClearLine7Mi);
-        LcdLoadString(&au8DataContent, LCD_FONT_SMALL, &sStringLocation);
-
-        // update our local message counter and send the message back
-        au8TestMessage[7]++;
-        if (au8TestMessage[7] == 0)
+        // dynamically allocate memory for incoming data
+        if (songLength + 1 > songCapacity)
         {
-          au8TestMessage[6]++;
-          if (au8TestMessage[6] == 0)
-          {
-            au8TestMessage[5]++;
-          }
+          songNotePitches = realloc(songNotePitches, songCapacity * 2);
+          songNoteDurations = realloc(songNoteDurations, songCapacity * 2 * 2);
         }
-        // AntQueueBroadcastMessage(U8_ANT_CHANNEL_USERAPP, au8TestMessage);
+
+        // store incoming song data
+        for (u8 i = 0; i < 8; i++)
+        {
+          songNotePitches[songLength] = au8LastAntData[i];
+          songLength++;
+        }
+        // react to start of time play back message
+        AntQueueAcknowledgedMessage(U8_ANT_CHANNEL_USERAPP, antAcknowledgeMessage);
       }
     } /*end if ant data*/
     else if (G_eAntApiCurrentMessageClass == ANT_TICK)
     {
-      // update tick counter
-      UserApp1_u32TickMsgCount++;
-
       // check if the state is new and therfore worth responding to
       if (u8LastState != G_au8AntApiCurrentMessageBytes[ANT_TICK_MSG_EVENT_CODE_INDEX])
       {
 
         // new state therefore update last state
         u8LastState = G_au8AntApiCurrentMessageBytes[ANT_TICK_MSG_EVENT_CODE_INDEX];
-        au8TickMessage[6] = HexToASCIICharUpper(u8LastState);
-        DebugPrintf(au8TickMessage);
 
         // parse last state event code:
         switch (u8LastState)
         {
         case RESPONSE_NO_ERROR:
           // no need to do anthing
-          LedOn(RED1);
           break;
         // paired but missing messages blue blinks
         case EVENT_RX_FAIL:
-          LedOff(GREEN0);
-          LedOff(RED0);
-          LedBlink(BLUE0, LED_2HZ);
+          LedOn(RED1);
           break;
         // Drop to search LED is green
         case EVENT_RX_FAIL_GO_TO_SEARCH:
-          LedOff(RED0);
-          LedOff(BLUE0);
-          LedOn(GREEN0);
+          LedBlink(RED1, LED_2HZ);
           break;
         case EVENT_RX_SEARCH_TIMEOUT:
           DebugPrintf("Search Timeout\r\n");
@@ -369,6 +373,36 @@ static void UserApp1SM_ChannelOpen()
       } /*end if */
     }
   } /* end AntReadAppMessageBuffer()*/
+}
+
+static void UserApp1SM_SongPlayBack()
+{
+  static u16 u16CurrentTimeMS = 0;
+  static u8 currentNoteIndex = 0;
+  static bool bLedOn = TRUE;
+
+  // checking to see if we are done the current note
+  if (u16CurrentTimeMS >= songNotePitches[currentNoteIndex] * 2)
+  {
+    // we are done the "current note"
+    if (bLedOn)
+    {
+      LedOff(RED3);
+      bLedOn = FALSE;
+    }
+    else
+    {
+      LedOn(RED3);
+      bLedOn = TRUE;
+    }
+    currentNoteIndex++;
+    u16CurrentTimeMS = 0;
+  }
+  if (currentNoteIndex >= songLength)
+  {
+    UserApp1_pfStateMachine = UserApp1SM_ChannelOpen;
+  }
+  u16CurrentTimeMS++;
 }
 
 static void UserApp1SM_WaitChannelClose()
@@ -391,58 +425,6 @@ static void UserApp1SM_WaitChannelClose()
     UserApp1_pfStateMachine = UserApp1SM_Error;
   }
 }
-
-static void UserApp1SM_ChannelOpenzzz()
-{
-  static u8 au8TestMessage[] = {0, 0, 0, 0, 0xA5, 0, 0, 0};
-
-  static PixelAddressType sStringLocation;
-  u8 au8DataContent[] = "xxxxxxxxxxxxxxxx";
-
-  extern PixelBlockType G_sLcdClearLine7; /* from lcd-NHD-C12864LZ.c*/
-
-  if (AntReadAppMessageBuffer())
-  {
-    if (G_eAntApiCurrentMessageClass == ANT_DATA)
-    {
-      // we have data
-      for (u8 i = 0; i < ANT_DATA_BYTES; i++)
-      {
-        au8DataContent[i * 2] = HexToASCIICharUpper(G_au8AntApiCurrentMessageBytes[i] / 16);
-        au8DataContent[(i * 2) + 1] = HexToASCIICharUpper(G_au8AntApiCurrentMessageBytes[i] % 16);
-      }
-
-      sStringLocation.u16PixelColumnAddress = U16_LCD_CENTER_COLUMN - (strlen((char const *)au8DataContent) * (U8_LCD_SMALL_FONT_COLUMNS + U8_LCD_SMALL_FONT_SPACE) / 2);
-      sStringLocation.u16PixelRowAddress = U8_LCD_SMALL_FONT_LINE7;
-      LcdClearPixels(&G_sLcdClearLine7);
-      LcdLoadString(au8DataContent, LCD_FONT_SMALL, &sStringLocation);
-    }
-    else if (G_eAntApiCurrentMessageClass == ANT_TICK)
-    {
-      // Channel period has occured time to send new data
-      // handles button pressing
-      au8TestMessage[0] = 0x00;
-      au8TestMessage[1] = 0x00;
-      au8TestMessage[2] = 0x00;
-      au8TestMessage[3] = 0x00;
-      if (IsButtonPressed(BUTTON0))
-      {
-        au8TestMessage[0] = 0xff;
-      }
-      if (IsButtonPressed(BUTTON1))
-      {
-        au8TestMessage[1] = 0xff;
-      }
-
-      // does mesage counter
-      au8TestMessage[7]++;
-      au8TestMessage[6] += au8TestMessage[7] == 0;
-      au8TestMessage[5] += (au8TestMessage[7] == 0) && (au8TestMessage[6] == 0);
-      // broadcast prepared message
-      AntQueueBroadcastMessage(U8_ANT_CHANNEL_USERAPP, au8TestMessage);
-    }
-  } /* end AntReadAppMessageBuffer()*/
-} /* end UserApp1SM_ChannelOpen() */
 
 /*-------------------------------------------------------------------------------------------------------------------*/
 /* Handle an error */
