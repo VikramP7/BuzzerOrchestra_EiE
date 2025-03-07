@@ -46,6 +46,96 @@ All Global variable names shall start with "G_<type>UserApp1"
 /* New variables */
 volatile u32 G_u32UserApp1Flags; /*!< @brief Global state flags */
 
+/*MUSIC*/
+static u8 song1[2][4][8] = {
+    // Instrument 1
+    {{
+         0x22,
+         0xFF,
+         0x55,
+         0xAA,
+         0x33,
+         0xFF,
+         0x22,
+         0xFF,
+     },
+     {
+         0x11,
+         0xEE,
+         0x22,
+         0x99,
+         0xFF,
+         0x44,
+         0x22,
+         0xFF,
+     },
+     {
+         0x22,
+         0xFF,
+         0x55,
+         0xAA,
+         0x33,
+         0xFF,
+         0x22,
+         0xFF,
+     },
+     {
+         0x11,
+         0xEE,
+         0x22,
+         0x99,
+         0xFF,
+         0x44,
+         0x22,
+         0xFF,
+     }},
+    // Instrument 2
+    {{
+         0x22,
+         0xFF,
+         0x55,
+         0xAA,
+         0x33,
+         0xFF,
+         0x22,
+         0xFF,
+     },
+     {
+         0x11,
+         0xEE,
+         0x22,
+         0x99,
+         0xFF,
+         0x44,
+         0x22,
+         0xFF,
+     },
+     {
+         0x22,
+         0xFF,
+         0x55,
+         0xAA,
+         0x33,
+         0xFF,
+         0x22,
+         0xFF,
+     },
+     {
+         0x11,
+         0xEE,
+         0x22,
+         0x99,
+         0xFF,
+         0x44,
+         0x22,
+         0xFF,
+     }}};
+
+static u8 songLengthAu8[2] = {4, 4};
+static u8 instrumentCount = 2;
+
+static u8 *pSong = &song1;
+
 /*--------------------------------------------------------------------------------------------------------------------*/
 /* Existing variables (defined in other files -- should all contain the "extern" keyword) */
 extern volatile u32 G_u32SystemTime1ms;    /*!< @brief From main.c */
@@ -57,6 +147,8 @@ extern u32 G_u32AntApiCurrentMessageTimeStamp;                           // From
 extern AntApplicationMessageType G_eAntApiCurrentMessageClass;           // From ant_api.c
 extern u8 G_au8AntApiCurrentMessageBytes[ANT_APPLICATION_MESSAGE_BYTES]; // From ant_api.c
 extern AntExtendedDataType G_sAntApiCurrentMessageExtData;               // From ant_api.c
+
+extern PixelBlockType G_sLcdClearLine7; /* from lcd-NHD-C12864LZ.c*/
 
 /***********************************************************************************************************************
 Global variable definitions with scope limited to this local application.
@@ -187,61 +279,110 @@ static void UserApp1SM_WaitChannelOpen()
 
 static void UserApp1SM_ChannelOpen()
 {
-  static u8 au8TestMessage[] = {0, 0, 0, 0, 0xA5, 0, 0, 0};
+  static u16 u16CurrentTimeMS = 0;
+  static bool bLedOn = TRUE;
 
-  static PixelAddressType sStringLocation;
-  u8 au8DataContent[] = "xxxxxxxxxxxxxxxx";
+  static bool firstTime = TRUE;
+  static bool doneTransmission = FALSE;
 
-  extern PixelBlockType G_sLcdClearLine7; /* from lcd-NHD-C12864LZ.c*/
+  static u8 currentIntrumentIndex = 1;
+  static u8 currentInstrumentPacket = 0;
+
+  static u8 currentLocalIntrumentIndex = 1;
+  static u8 currentLocalPacketIndex = 0;
+  static u8 currentLocalByteIndex = 0xFF;
+
+  static u8 au8NotesMessage[] = {0, 0, 0, 0, 0xA5, 0, 0, 0};
 
   if (AntReadAppMessageBuffer())
   {
     if (G_eAntApiCurrentMessageClass == ANT_DATA)
     {
-      // we have data
-      for (u8 i = 0; i < ANT_DATA_BYTES; i++)
-      {
-        au8DataContent[i * 2] = HexToASCIICharUpper(G_au8AntApiCurrentMessageBytes[i] / 16);
-        au8DataContent[(i * 2) + 1] = HexToASCIICharUpper(G_au8AntApiCurrentMessageBytes[i] % 16);
-      }
-
-      sStringLocation.u16PixelColumnAddress = U16_LCD_CENTER_COLUMN - (strlen((char const *)au8DataContent) * (U8_LCD_SMALL_FONT_COLUMNS + U8_LCD_SMALL_FONT_SPACE) / 2);
-      sStringLocation.u16PixelRowAddress = U8_LCD_SMALL_FONT_LINE7;
-      LcdClearPixels(&G_sLcdClearLine7);
-      LcdLoadString(au8DataContent, LCD_FONT_SMALL, &sStringLocation);
+      // we have data from slaves
     }
     else if (G_eAntApiCurrentMessageClass == ANT_TICK)
     {
       // Channel period has occured time to send new data
-      // handles button pressing
-      au8TestMessage[0] = 0x00;
-      au8TestMessage[1] = 0x00;
-      au8TestMessage[2] = 0x00;
-      au8TestMessage[3] = 0x00;
-      if (IsButtonPressed(BUTTON0))
+      if (G_au8AntApiCurrentMessageBytes[ANT_TICK_MSG_EVENT_CODE_INDEX] == EVENT_TRANSFER_TX_COMPLETED)
       {
-        au8TestMessage[0] = 0xff;
+        // message ack good for next message
+        if (currentIntrumentIndex < instrumentCount)
+        {
+          // still have instruments that need data
+          currentInstrumentPacket++;
+          if (currentInstrumentPacket >= songLengthAu8[currentIntrumentIndex])
+          {
+            currentIntrumentIndex++;
+            currentInstrumentPacket = 0; // reset
+          }
+        }
       }
-      if (IsButtonPressed(BUTTON1))
+      else if (G_au8AntApiCurrentMessageBytes[ANT_TICK_MSG_EVENT_CODE_INDEX] == EVENT_TRANSFER_TX_FAILED)
       {
-        au8TestMessage[1] = 0xff;
+        // message send failed resend last message
+        // Leave instrument and current packet indexes the same
       }
 
-      // does mesage counter
-      au8TestMessage[7]++;
-      au8TestMessage[6] += au8TestMessage[7] == 0;
-      au8TestMessage[5] += (au8TestMessage[7] == 0) && (au8TestMessage[6] == 0);
-      // broadcast prepared message
-      AntQueueBroadcastMessage(U8_ANT_CHANNEL_USERAPP, au8TestMessage);
+      // if we are done sending the song data send start of time message to all boards
+      if (currentIntrumentIndex >= instrumentCount)
+      {
+        for (u8 i = 0; i < 8; i++)
+        {
+          // loop through 8bytes of current packet to populate next outgoing message
+          au8NotesMessage[i] = 0xFF;
+        }
+        AntQueueBroadcastMessage(U8_ANT_CHANNEL_USERAPP, au8NotesMessage);
+
+        // do local sequence
+        // checking to see if not done song
+        if ((currentLocalPacketIndex == 0) && (currentLocalByteIndex == 0xFF))
+        {
+          // first time check
+          u16CurrentTimeMS = 0;
+          bLedOn = TRUE;
+          LedOn(RED3);
+          currentLocalByteIndex = 0;
+        }
+
+        if (currentLocalPacketIndex < songLengthAu8[currentLocalIntrumentIndex])
+        {
+          // checking to see if we are done the current note
+          if (u16CurrentTimeMS >= song1[currentLocalIntrumentIndex][currentLocalPacketIndex][currentLocalByteIndex] * 2)
+          {
+            // we are done the "current note"
+            if (bLedOn)
+            {
+              LedOff(RED3);
+              bLedOn = FALSE;
+            }
+            else
+            {
+              LedOn(RED3);
+              bLedOn = TRUE;
+            }
+            currentLocalByteIndex++;
+            if (currentLocalByteIndex >= 8)
+            {
+              currentLocalByteIndex = 0;
+              currentLocalPacketIndex++;
+            }
+          }
+        }
+      }
+      else
+      {
+        // we are not done sending all the song data keep beaming
+        for (u8 i = 0; i < 8; i++)
+        {
+          // loop through 8bytes of current packet to populate next outgoing message
+          au8NotesMessage[i] = song1[currentIntrumentIndex][currentInstrumentPacket][i];
+        }
+        AntQueueAcknowledgedMessage(U8_ANT_CHANNEL_USERAPP, au8NotesMessage);
+      }
     }
   } /* end AntReadAppMessageBuffer()*/
+  u16CurrentTimeMS++;
 } /* end UserApp1SM_ChannelOpen() */
-
-/* What does this state do? */
-static void UserApp1SM_Idle(void)
-{
-
-} /* end UserApp1SM_Idle() */
 
 /*-------------------------------------------------------------------------------------------------------------------*/
 /* Handle an error */
