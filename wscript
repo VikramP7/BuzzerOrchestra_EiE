@@ -380,8 +380,9 @@ def get_jlink_srch_path(exe_name: str):
         # conflicts with java's linker. User can still override with an explicit JLINK=... on the
         # command line.
         return [
-            "C:\\Program Files\\SEGGER\\JLink",
-            "C:\\Program Files (x86)\\SEGGER\\JLink",
+            #"C:\\Program Files\\SEGGER\\JLink",
+            #"C:\\Program Files (x86)\\SEGGER\\JLink",
+            "C:\\Program Files\\SEGGER\\Link_V798i"
         ] + paths
 
     elif Utils.unversioned_sys_platform() == "darwin":
