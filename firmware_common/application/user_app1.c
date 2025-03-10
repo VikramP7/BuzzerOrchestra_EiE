@@ -47,8 +47,8 @@ All Global variable names shall start with "G_<type>UserApp1"
 volatile u32 G_u32UserApp1Flags; /*!< @brief Global state flags */
 
 /*MUSIC*/
+// Instrument 1
 static u8 song1[2][4][8] = {
-    // Instrument 1
     {{
          0x22,
          0xFF,
@@ -89,7 +89,6 @@ static u8 song1[2][4][8] = {
          0x22,
          0xFF,
      }},
-    // Instrument 2
     {{
          0x22,
          0xFF,
@@ -131,10 +130,14 @@ static u8 song1[2][4][8] = {
          0xFF,
      }}};
 
+static u8 localSongIndex = 0;
 static u8 songLengthAu8[2] = {4, 4};
 static u8 instrumentCount = 2;
 
-static u8 *pSong = &song1;
+static u8 *songNotePitches;    // dynamically allocated list of note pitches
+static u16 *songNoteDurations; // dynamically allocated list of note durrations
+static u16 songLength = 0;
+static u16 songCapacity = 64;
 
 /*--------------------------------------------------------------------------------------------------------------------*/
 /* Existing variables (defined in other files -- should all contain the "extern" keyword) */
@@ -163,6 +166,7 @@ Function Definitions
 static void UserApp1SM_WaitAntReady();
 static void UserApp1SM_ChannelOpen();
 static void UserApp1SM_WaitChannelOpen();
+static void UserApp1SM_SongPlayBack();
 
 /*--------------------------------------------------------------------------------------------------------------------*/
 /*! @publicsection */
@@ -189,6 +193,25 @@ Promises:
 */
 void UserApp1Initialize(void)
 {
+  // temporatily putting conversion of song data for transmission into song data for playback
+  // dynamically allocate memory for incoming data
+
+  // store incoming song data
+  for (u16 packetIndex = 0; packetIndex < songLengthAu8[localSongIndex]; packetIndex++)
+  {
+    if (songLength + 1 > songCapacity)
+    {
+      songNotePitches = realloc(songNotePitches, songCapacity * 2);
+      songNoteDurations = realloc(songNoteDurations, songCapacity * 2 * 2);
+    }
+    for (u8 i = 0; i < 8; i++)
+    {
+      songNotePitches[songLength] = song1[localSongIndex][packetIndex][i];
+      songLength++;
+    }
+  }
+
+  // ----------- REGULAR INITIALIZATION ------------------
   AntAssignChannelInfoType sChannelInfo;
   if (AntRadioStatusChannel(U8_ANT_CHANNEL_USERAPP) == ANT_UNCONFIGURED)
   {
@@ -282,8 +305,7 @@ static void UserApp1SM_ChannelOpen()
   static u16 u16CurrentTimeMS = 0;
   static bool bLedOn = TRUE;
 
-  static bool firstTime = TRUE;
-  static bool doneTransmission = FALSE;
+  static u8 doneTransmission = 0;
 
   static u8 currentIntrumentIndex = 1;
   static u8 currentInstrumentPacket = 0;
@@ -314,6 +336,7 @@ static void UserApp1SM_ChannelOpen()
           {
             currentIntrumentIndex++;
             currentInstrumentPacket = 0; // reset
+            doneTransmission = currentIntrumentIndex >= instrumentCount ? 1 : 0;
           }
         }
       }
@@ -324,50 +347,11 @@ static void UserApp1SM_ChannelOpen()
       }
 
       // if we are done sending the song data send start of time message to all boards
-      if (currentIntrumentIndex >= instrumentCount)
+      if (doneTransmission > 0)
       {
-        for (u8 i = 0; i < 8; i++)
-        {
-          // loop through 8bytes of current packet to populate next outgoing message
-          au8NotesMessage[i] = 0xFF;
-        }
-        AntQueueBroadcastMessage(U8_ANT_CHANNEL_USERAPP, au8NotesMessage);
-
         // do local sequence
-        // checking to see if not done song
-        if ((currentLocalPacketIndex == 0) && (currentLocalByteIndex == 0xFF))
-        {
-          // first time check
-          u16CurrentTimeMS = 0;
-          bLedOn = TRUE;
-          LedOn(RED3);
-          currentLocalByteIndex = 0;
-        }
-
-        if (currentLocalPacketIndex < songLengthAu8[currentLocalIntrumentIndex])
-        {
-          // checking to see if we are done the current note
-          if (u16CurrentTimeMS >= song1[currentLocalIntrumentIndex][currentLocalPacketIndex][currentLocalByteIndex] * 2)
-          {
-            // we are done the "current note"
-            if (bLedOn)
-            {
-              LedOff(RED3);
-              bLedOn = FALSE;
-            }
-            else
-            {
-              LedOn(RED3);
-              bLedOn = TRUE;
-            }
-            currentLocalByteIndex++;
-            if (currentLocalByteIndex >= 8)
-            {
-              currentLocalByteIndex = 0;
-              currentLocalPacketIndex++;
-            }
-          }
-        }
+        LedOn(RED3);
+        UserApp1_pfStateMachine = UserApp1SM_SongPlayBack;
       }
       else
       {
@@ -379,10 +363,50 @@ static void UserApp1SM_ChannelOpen()
         }
         AntQueueAcknowledgedMessage(U8_ANT_CHANNEL_USERAPP, au8NotesMessage);
       }
-    }
+    } /* end ant tick message*/
   } /* end AntReadAppMessageBuffer()*/
   u16CurrentTimeMS++;
 } /* end UserApp1SM_ChannelOpen() */
+
+static void UserApp1SM_SongPlayBack()
+{
+  static u16 u16CurrentTimeMS = 0;
+  static u8 currentNoteIndex = 0;
+  static u8 currentLocalByteIndex = 0;
+  static bool bLedOn = TRUE;
+  static u8 startTime = 0;
+  static u8 au8StartMessage[8] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+
+  // checking to see if we are done the current note
+  u16 timeish = songNotePitches[currentNoteIndex] * 2;
+  if (u16CurrentTimeMS >= songNotePitches[currentNoteIndex] * 2)
+  {
+    // we are done the "current note"
+    if (bLedOn)
+    {
+      LedOff(RED3);
+      bLedOn = FALSE;
+    }
+    else
+    {
+      LedOn(RED3);
+      bLedOn = TRUE;
+    }
+    currentNoteIndex++;
+    u16CurrentTimeMS = 0;
+  }
+  if (currentNoteIndex >= songLength)
+  {
+    UserApp1_pfStateMachine = UserApp1SM_ChannelOpen;
+  }
+  u16CurrentTimeMS++;
+
+  if (startTime < 3)
+  {
+    AntQueueBroadcastMessage(U8_ANT_CHANNEL_USERAPP, au8StartMessage);
+    startTime++;
+  }
+}
 
 /*-------------------------------------------------------------------------------------------------------------------*/
 /* Handle an error */
