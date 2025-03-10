@@ -382,7 +382,7 @@ static void UserApp1SM_SongPlayBack()
   static bool bLedOn = TRUE;
 
   // checking to see if we are done the current note
-  if (u16CurrentTimeMS >= songNotePitches[currentNoteIndex] * 2)
+  if (u16CurrentTimeMS >= songNotePitches[currentNoteIndex])
   {
     // we are done the "current note"
     if (bLedOn)
