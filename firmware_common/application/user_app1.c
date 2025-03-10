@@ -197,6 +197,10 @@ void UserApp1Initialize(void)
   // dynamically allocate memory for incoming data
 
   // store incoming song data
+
+  songNotePitches = malloc(songCapacity);
+  songNoteDurations = malloc(songCapacity * 2);
+
   for (u16 packetIndex = 0; packetIndex < songLengthAu8[localSongIndex]; packetIndex++)
   {
     if (songLength + 1 > songCapacity)
@@ -206,7 +210,9 @@ void UserApp1Initialize(void)
     }
     for (u8 i = 0; i < 8; i++)
     {
+      u8 curLength = song1[localSongIndex][packetIndex][i];
       songNotePitches[songLength] = song1[localSongIndex][packetIndex][i];
+      u8 nextLength = songNotePitches[songLength];
       songLength++;
     }
   }
@@ -351,7 +357,17 @@ static void UserApp1SM_ChannelOpen()
       {
         // do local sequence
         LedOn(RED3);
-        UserApp1_pfStateMachine = UserApp1SM_SongPlayBack;
+        static u8 startTime = 0;
+        static u8 au8StartMessage[8] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+        if (startTime < 1)
+        {
+          AntQueueBroadcastMessage(U8_ANT_CHANNEL_USERAPP, au8StartMessage);
+          startTime++;
+        }
+        else
+        {
+          UserApp1_pfStateMachine = UserApp1SM_SongPlayBack;
+        }
       }
       else
       {
@@ -372,13 +388,9 @@ static void UserApp1SM_SongPlayBack()
 {
   static u16 u16CurrentTimeMS = 0;
   static u8 currentNoteIndex = 0;
-  static u8 currentLocalByteIndex = 0;
   static bool bLedOn = TRUE;
-  static u8 startTime = 0;
-  static u8 au8StartMessage[8] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 
   // checking to see if we are done the current note
-  u16 timeish = songNotePitches[currentNoteIndex] * 2;
   if (u16CurrentTimeMS >= songNotePitches[currentNoteIndex] * 2)
   {
     // we are done the "current note"
@@ -400,12 +412,6 @@ static void UserApp1SM_SongPlayBack()
     UserApp1_pfStateMachine = UserApp1SM_ChannelOpen;
   }
   u16CurrentTimeMS++;
-
-  if (startTime < 3)
-  {
-    AntQueueBroadcastMessage(U8_ANT_CHANNEL_USERAPP, au8StartMessage);
-    startTime++;
-  }
 }
 
 /*-------------------------------------------------------------------------------------------------------------------*/
