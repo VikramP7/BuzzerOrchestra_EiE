@@ -44,8 +44,6 @@ Global variable definitions with scope across entire project.
 All Global variable names shall start with "G_<type>UserApp1"
 ***********************************************************************************************************************/
 
-static u32 UserApp1_u32DataMsgCount = 0; /*ANT_DATA packet counter*/
-static u32 UserApp1_u32TickMsgCount = 0; /*ANT_TICK packet counter*/
 static u32 UserApp1_u32TimeOut = 0;
 
 /* New variables */
@@ -58,6 +56,8 @@ static u16 songLength = 0;
 static u16 songCapacity = 64;
 
 static u8 antAcknowledgeMessage[] = {0x53, 0x68, 0x61, 0x6E, 0x65, 0x20, 0x47, 0x2E};
+
+static u8 slaveID = 0xA0;
 
 /*--------------------------------------------------------------------------------------------------------------------*/
 /* Existing variables (defined in other files -- should all contain the "extern" keyword) */
@@ -295,12 +295,15 @@ static void UserApp1SM_ChannelOpen()
       u8LastState = 0xff;
 
       bGotNewData = FALSE;
-      for (u8 i = 0; i < ANT_APPLICATION_MESSAGE_BYTES; i++)
+      if (G_au8AntApiCurrentMessageBytes[0] == slaveID)
       {
-        if (G_au8AntApiCurrentMessageBytes[i] != au8LastAntData[i])
+        for (u8 i = 0; i < ANT_APPLICATION_MESSAGE_BYTES; i++)
         {
-          bGotNewData = TRUE;
-          au8LastAntData[i] = G_au8AntApiCurrentMessageBytes[i];
+          if (G_au8AntApiCurrentMessageBytes[i] != au8LastAntData[i])
+          {
+            bGotNewData = TRUE;
+            au8LastAntData[i] = G_au8AntApiCurrentMessageBytes[i];
+          }
         }
       }
 
@@ -331,11 +334,14 @@ static void UserApp1SM_ChannelOpen()
         }
 
         // store incoming song data
-        for (u8 i = 0; i < 8; i++)
-        {
-          songNotePitches[songLength] = au8LastAntData[i];
-          songLength++;
-        }
+        songNotePitches[songLength] = au8LastAntData[3];
+        songNoteDurations[songLength] = au8DataContent[4] + au8DataContent[5] * 256;
+        songLength++;
+
+        songNotePitches[songLength] = au8LastAntData[0];
+        songNoteDurations[songLength] = au8DataContent[1] + au8DataContent[2] * 256;
+        songLength++;
+
         // react to start of time play back message
         AntQueueAcknowledgedMessage(U8_ANT_CHANNEL_USERAPP, antAcknowledgeMessage);
       }
@@ -382,19 +388,10 @@ static void UserApp1SM_SongPlayBack()
   static bool bLedOn = TRUE;
 
   // checking to see if we are done the current note
-  if (u16CurrentTimeMS >= songNotePitches[currentNoteIndex])
+  if (u16CurrentTimeMS >= songNoteDurations[currentNoteIndex])
   {
     // we are done the "current note"
-    if (bLedOn)
-    {
-      LedOff(RED3);
-      bLedOn = FALSE;
-    }
-    else
-    {
-      LedOn(RED3);
-      bLedOn = TRUE;
-    }
+    PWMAudioSetFrequency(BUZZER1, MIDIFREQ(songNotePitches[currentNoteIndex]));
     currentNoteIndex++;
     u16CurrentTimeMS = 0;
   }
