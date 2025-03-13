@@ -58,6 +58,9 @@ static u16 songCapacity = 64;
 static u8 antAcknowledgeMessage[] = {0x53, 0x68, 0x61, 0x6E, 0x65, 0x20, 0x47, 0x2E};
 
 static u8 slaveID = 0xA1;
+
+static bool bMUTE = FALSE;
+
 // MIDI to Frequency conversion
 static u16 MIDIFREQ[128] = {0, 9, 9, 10, 10, 11, 12, 12, 13, 14, 15, 15, 16, 17, 18, 19, 21, 22, 23, 24, 26, 28, 29, 31, 33, 35, 37, 39, 41, 44, 46, 49, 52, 55, 58, 62, 65, 69, 73, 78, 82, 87, 92, 98, 104, 110, 117, 123, 131, 139, 147, 156, 165, 175, 185, 196, 208, 220, 233, 247, 262, 277, 294, 311, 330, 349, 370, 392, 415, 440, 466, 494, 523, 554, 587, 622, 659, 698, 740, 784, 831, 880, 932, 988, 1047, 1109, 1175, 1245, 1319, 1397, 1480, 1568, 1661, 1760, 1865, 1976, 2093, 2217, 2349, 2489, 2637, 2794, 2960, 3136, 3322, 3520, 3729, 3951, 4186, 4435, 4699, 4978, 5274, 5588, 5920, 6272, 6645, 7040, 7459, 7902, 8372, 8870, 9397, 9956, 10548, 11175, 11840, 12544};
 
@@ -149,7 +152,7 @@ void UserApp1Initialize(void)
 
   /*----------- PLACE MESSAGE ON SCREEN------------*/
   PixelAddressType sStringLocation;
-  u8 au8WelcomeMessage[] = "INSTRUMENT BOARD";
+  u8 au8WelcomeMessage[] = "INSTRUMENT BOARD 1";
 
   sStringLocation.u16PixelColumnAddress = U16_LCD_CENTER_COLUMN - (strlen((char const *)au8WelcomeMessage) * (U8_LCD_SMALL_FONT_COLUMNS + U8_LCD_SMALL_FONT_SPACE) / 2);
   sStringLocation.u16PixelRowAddress = U8_LCD_SMALL_FONT_LINE7;
@@ -161,9 +164,16 @@ void UserApp1Initialize(void)
           .u16RowSize = U8_LCD_SMALL_FONT_ROWS,
           .u16ColumnSize = U16_LCD_COLUMNS};
 
+  static u8 WifiImage[16][2] = {{0x00, 0x00}, {0xF0, 0x0F}, {0x1C, 0x38}, {0x06, 0x60}, {0xC3, 0xC3}, {0x71, 0x8E}, {0x1C, 0x38}, {0x06, 0x60}, {0xE2, 0x47}, {0x30, 0x0C}, {0x08, 0x10}, {0xC0, 0x03}, {0xC0, 0x03}, {0xC0, 0x03}, {0xC0, 0x03}, {0x00, 0x00}};
+  static PixelBlockType sWifiBoundingBox = {0, 0, 16, 16};
+  static u8 MuteImage[16][2] = {{0x00, 0x00}, {0x0C, 0x07}, {0x06, 0x0D}, {0x33, 0x19}, {0x19, 0x31}, {0x49, 0xE1}, {0x29, 0x81}, {0x29, 0x81}, {0x29, 0x81}, {0x29, 0x81}, {0x49, 0xE1}, {0x19, 0x31}, {0x33, 0x19}, {0x06, 0x0D}, {0x0C, 0x07}, {0x00, 0x00}};
+  static PixelBlockType sMuteBoundingBox = {0, 111, 16, 16};
+
+  LcdLoadBitmap(&WifiImage[0][0], &sWifiBoundingBox);
+  LcdLoadBitmap(&MuteImage[0][0], &sMuteBoundingBox);
+
   LcdClearPixels(&G_sLcdClearLine7Mi);
   LcdLoadString(&au8WelcomeMessage, LCD_FONT_SMALL, &sStringLocation);
-
   /*------ If good initialization, set state to Idle -------*/
   if (AntAssignChannel(&sChannelInfo))
   {
@@ -260,12 +270,9 @@ static void UserApp1SM_WaitChannelOpen()
 static void UserApp1SM_ChannelOpen()
 {
   static u8 u8LastState = 0xff;
-  static u8 au8TickMessage[] = "Event x\n\r";
 
   static u8 au8TestMessage[] = {0, 0, 0, 0, 0xA5, 0, 0, 0};
   static u8 au8LastAntData[ANT_APPLICATION_MESSAGE_BYTES] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
-  static PixelAddressType sStringLocation;
-  u8 au8DataContent[] = "xxxxxxxxxxxxxxxx";
   bool bGotNewData;
 
   /*Check if button 0 is pressed to close channel*/
@@ -320,6 +327,7 @@ static void UserApp1SM_ChannelOpen()
       // own if statement to reduce timing
       if (bGotNewData)
       {
+        LedBlink(RED1, LED_2HZ);
         bool endOfSong = TRUE;
         for (u8 i = 0; i < 8; i++)
         {
@@ -327,8 +335,11 @@ static void UserApp1SM_ChannelOpen()
         }
         if (endOfSong)
         {
-          LedOn(RED3);
+          LedOff(RED1);
           PWMAudioOn(BUZZER1); // turn on buzzer for play back
+          LedOff(RED3);
+          LedOn(GREEN3);
+          bMUTE = FALSE;
           UserApp1_pfStateMachine = UserApp1SM_SongPlayBack;
           bGotNewData = FALSE;
         }
@@ -373,11 +384,11 @@ static void UserApp1SM_ChannelOpen()
           break;
         // paired but missing messages blue blinks
         case EVENT_RX_FAIL:
-          LedOn(RED1);
+          // LedOn(RED1);
           break;
         // Drop to search LED is green
         case EVENT_RX_FAIL_GO_TO_SEARCH:
-          LedBlink(RED1, LED_2HZ);
+          // LedBlink(RED1, LED_2HZ);
           break;
         case EVENT_RX_SEARCH_TIMEOUT:
           DebugPrintf("Search Timeout\r\n");
@@ -404,10 +415,30 @@ static void UserApp1SM_SongPlayBack()
     currentNoteIndex++;
     u16CurrentTimeMS = 0;
   }
+  // check to see if we are done the song
   if (currentNoteIndex >= songLength)
   {
     PWMAudioOff(BUZZER1); // turn off buzzer now we are done playing
+    LedOff(RED3);
     UserApp1_pfStateMachine = UserApp1SM_ChannelOpen;
+  }
+  // check to see if the mute button was pressed
+  if (WasButtonPressed(BUTTON1))
+  {
+    ButtonAcknowledge(BUTTON1);
+    bMUTE = !bMUTE;
+    if (bMUTE)
+    {
+      LedOff(GREEN3);
+      LedOn(RED3);
+      PWMAudioOff(BUZZER1);
+    }
+    else
+    {
+      LedOff(RED3);
+      LedOn(GREEN3);
+      PWMAudioOn(BUZZER1);
+    }
   }
   u16CurrentTimeMS++;
 }
