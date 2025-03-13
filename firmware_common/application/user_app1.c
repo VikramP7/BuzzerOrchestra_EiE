@@ -57,7 +57,7 @@ static u16 songCapacity = 64;
 
 static u8 antAcknowledgeMessage[] = {0x53, 0x68, 0x61, 0x6E, 0x65, 0x20, 0x47, 0x2E};
 
-static u8 slaveID = 0xA0;
+static u8 slaveID = 0xA1;
 // MIDI to Frequency conversion
 static u16 MIDIFREQ[128] = {0, 9, 9, 10, 10, 11, 12, 12, 13, 14, 15, 15, 16, 17, 18, 19, 21, 22, 23, 24, 26, 28, 29, 31, 33, 35, 37, 39, 41, 44, 46, 49, 52, 55, 58, 62, 65, 69, 73, 78, 82, 87, 92, 98, 104, 110, 117, 123, 131, 139, 147, 156, 165, 175, 185, 196, 208, 220, 233, 247, 262, 277, 294, 311, 330, 349, 370, 392, 415, 440, 466, 494, 523, 554, 587, 622, 659, 698, 740, 784, 831, 880, 932, 988, 1047, 1109, 1175, 1245, 1319, 1397, 1480, 1568, 1661, 1760, 1865, 1976, 2093, 2217, 2349, 2489, 2637, 2794, 2960, 3136, 3322, 3520, 3729, 3951, 4186, 4435, 4699, 4978, 5274, 5588, 5920, 6272, 6645, 7040, 7459, 7902, 8372, 8870, 9397, 9956, 10548, 11175, 11840, 12544};
 
@@ -114,13 +114,16 @@ Promises:
 */
 void UserApp1Initialize(void)
 {
-  PixelAddressType sStringLocation;
-  u8 au8WelcomeMessage[] = "ANT Slave Demo";
-
-  LedOn(RED0); /*Set Status LED to red as ant is unconfigured*/
+  /*------------ SONG STORAGE INITIALIZATION --------*/
   songNotePitches = malloc(songCapacity);
   songNoteDurations = malloc(songCapacity * 2);
 
+  /*------------ BUZZER INITIALIZATION -------------*/
+  PWMAudioSetFrequency(BUZZER1, 0);
+  PWMAudioOff(BUZZER1);
+
+  /*------------ RADIO INITIALIZATION -----------------*/
+  LedOn(RED0); /*Set Status LED to red as ant is unconfigured*/
   AntAssignChannelInfoType sChannelInfo;
   if (AntRadioStatusChannel(U8_ANT_CHANNEL_USERAPP) == ANT_UNCONFIGURED)
   {
@@ -144,6 +147,10 @@ void UserApp1Initialize(void)
     }
   } /*END radio initilization*/
 
+  /*----------- PLACE MESSAGE ON SCREEN------------*/
+  PixelAddressType sStringLocation;
+  u8 au8WelcomeMessage[] = "INSTRUMENT BOARD";
+
   sStringLocation.u16PixelColumnAddress = U16_LCD_CENTER_COLUMN - (strlen((char const *)au8WelcomeMessage) * (U8_LCD_SMALL_FONT_COLUMNS + U8_LCD_SMALL_FONT_SPACE) / 2);
   sStringLocation.u16PixelRowAddress = U8_LCD_SMALL_FONT_LINE7;
 
@@ -157,7 +164,7 @@ void UserApp1Initialize(void)
   LcdClearPixels(&G_sLcdClearLine7Mi);
   LcdLoadString(&au8WelcomeMessage, LCD_FONT_SMALL, &sStringLocation);
 
-  /* If good initialization, set state to Idle */
+  /*------ If good initialization, set state to Idle -------*/
   if (AntAssignChannel(&sChannelInfo))
   {
     LedOn(RED0);
@@ -297,7 +304,7 @@ static void UserApp1SM_ChannelOpen()
       u8LastState = 0xff;
 
       bGotNewData = FALSE;
-      if (G_au8AntApiCurrentMessageBytes[0] == slaveID)
+      if (G_au8AntApiCurrentMessageBytes[0] == slaveID || G_au8AntApiCurrentMessageBytes[0] == 0xff)
       {
         for (u8 i = 0; i < ANT_APPLICATION_MESSAGE_BYTES; i++)
         {
@@ -321,6 +328,7 @@ static void UserApp1SM_ChannelOpen()
         if (endOfSong)
         {
           LedOn(RED3);
+          PWMAudioOn(BUZZER1); // turn on buzzer for play back
           UserApp1_pfStateMachine = UserApp1SM_SongPlayBack;
           bGotNewData = FALSE;
         }
@@ -336,12 +344,12 @@ static void UserApp1SM_ChannelOpen()
         }
 
         // store incoming song data
-        songNotePitches[songLength] = au8LastAntData[3];
-        songNoteDurations[songLength] = au8DataContent[4] + au8DataContent[5] * 256;
+        songNotePitches[songLength] = au8LastAntData[4];
+        songNoteDurations[songLength] = au8LastAntData[3] + au8LastAntData[2] * 256;
         songLength++;
 
-        songNotePitches[songLength] = au8LastAntData[0];
-        songNoteDurations[songLength] = au8DataContent[1] + au8DataContent[2] * 256;
+        songNotePitches[songLength] = au8LastAntData[7];
+        songNoteDurations[songLength] = au8LastAntData[6] + au8LastAntData[5] * 256;
         songLength++;
 
         // react to start of time play back message
@@ -387,18 +395,18 @@ static void UserApp1SM_SongPlayBack()
 {
   static u16 u16CurrentTimeMS = 0;
   static u8 currentNoteIndex = 0;
-  static bool bLedOn = TRUE;
 
   // checking to see if we are done the current note
   if (u16CurrentTimeMS >= songNoteDurations[currentNoteIndex])
   {
     // we are done the "current note"
-    PWMAudioSetFrequency(BUZZER1, MIDIFREQ[songNotePitches[currentNoteIndex]]);
+    PWMAudioSetFrequency(BUZZER1, MIDIFREQ[songNotePitches[currentNoteIndex + 1]]);
     currentNoteIndex++;
     u16CurrentTimeMS = 0;
   }
   if (currentNoteIndex >= songLength)
   {
+    PWMAudioOff(BUZZER1); // turn off buzzer now we are done playing
     UserApp1_pfStateMachine = UserApp1SM_ChannelOpen;
   }
   u16CurrentTimeMS++;
