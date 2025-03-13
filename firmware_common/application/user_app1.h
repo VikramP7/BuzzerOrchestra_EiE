@@ -62,10 +62,6 @@ Constants / Definitions
 #define U32_TIMEOUT_OPEN_CHANNEL (u32)5000
 #define U32_TIMEOUT_CLOSE_CHANNEL (u32)2000
 
-// midi conversion
-#include <math.h>
-#define MIDIFREQ(val) 440 * pow(2, (val - 69) / 12)
-
 #endif /* __USER_APP1_H */
 
 /*--------------------------------------------------------------------------------------------------------------------*/
