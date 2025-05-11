@@ -65,6 +65,9 @@ This was precalculated using a python script and durring playback the frequencie
 
 ## Build and Run Instructions
 
+To install the necessary tools to compile the project see [setup.md](docs/setup.md)
+To set up the VSCode development environment see [vscode.md](docs/vscode.md)
+
 To compile the project | *Note: waf requires python*
 
 1. Open a new terminal
