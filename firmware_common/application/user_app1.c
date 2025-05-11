@@ -136,6 +136,7 @@ void UserApp1Initialize(void)
   songNoteDurations = malloc(songCapacity * 2);
 
   /*---------- CURRENT SELECTED SONG DATA INTIALIZATION ----------------*/
+  // preparing data to be in packet format
   for (u16 packetIndex = 0; packetIndex < songLengthAu8[localSongIndex]; packetIndex++)
   {
     if (songLength + 2 > songCapacity)
@@ -202,11 +203,13 @@ void UserApp1Initialize(void)
           .u16RowSize = U8_LCD_SMALL_FONT_ROWS,
           .u16ColumnSize = U16_LCD_COLUMNS};
 
+  // defining the bitmaps for the icon graphics to be displayed
   static u8 WifiImage[16][2] = {{0x00, 0x00}, {0xF0, 0x0F}, {0x1C, 0x38}, {0x06, 0x60}, {0xC3, 0xC3}, {0x71, 0x8E}, {0x1C, 0x38}, {0x06, 0x60}, {0xE2, 0x47}, {0x30, 0x0C}, {0x08, 0x10}, {0xC0, 0x03}, {0xC0, 0x03}, {0xC0, 0x03}, {0xC0, 0x03}, {0x00, 0x00}};
   static PixelBlockType sWifiBoundingBox = {0, 0, 16, 16};
   static u8 MuteImage[16][2] = {{0x00, 0x00}, {0x0C, 0x07}, {0x06, 0x0D}, {0x33, 0x19}, {0x19, 0x31}, {0x49, 0xE1}, {0x29, 0x81}, {0x29, 0x81}, {0x29, 0x81}, {0x29, 0x81}, {0x49, 0xE1}, {0x19, 0x31}, {0x33, 0x19}, {0x06, 0x0D}, {0x0C, 0x07}, {0x00, 0x00}};
   static PixelBlockType sMuteBoundingBox = {0, 111, 16, 16};
 
+  // display icons on LCD
   LcdLoadBitmap(&WifiImage[0][0], &sWifiBoundingBox);
   LcdLoadBitmap(&MuteImage[0][0], &sMuteBoundingBox);
 
