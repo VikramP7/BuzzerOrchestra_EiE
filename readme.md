@@ -9,8 +9,8 @@ To compile the project
 3. Run `./waf build` to build or `./waf build -F` to build and flash the device.
 
 ## Communications Syncing Protocol
-- Note information is transmitted to each device sequentially, ie. the first slave device receieves a message of what note it should be playing, then the second device receives its notes
-- Assume that radio transmission is instantaneous, and buzzer start up is as well.
+- Note information is transmitted to each device sequentially, ie. the first slave device receieves all music data, then the second device receives its data in full, this is repeated until all intrument (slave) boards have the required data to play the song.
+- Assume that radio transmission and acknoledgment is virtually instantaneous when considering the time accuracy required for music playback.
 
 ## Communications Note Encoding
 *Each message contains 8 bytes*
